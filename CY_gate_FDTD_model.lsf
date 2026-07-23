@@ -1,0 +1,484 @@
+# ============================================================
+# CY_gate_FDTD_model.lsf
+#
+# FDTD model associated with:
+# "High-Fidelity Single-Layer Gradient Metasurface for
+# Optical Quantum Controlled-Y Gate"
+#
+# Software:
+#   Ansys Lumerical FDTD Solutions 2024 R1
+#
+# Public scope:
+#   This standalone script constructs the complete 3D FDTD model
+#   used for the single-layer PB-gradient metasurface, including
+#   materials, the 26 x 26 nanopillar array, four circularly
+#   polarized input-mode definitions, PML boundaries, local mesh,
+#   and the transmitted-field monitor.
+#
+#   The encoded two-photon gate-matrix reconstruction and fidelity
+#   calculations are performed separately in MATLAB and are not
+#   included in this public script.
+#
+# Authors:
+#   Dongyan Li, Weihao Zhang, Yaru Li, and Guoqiang Lan
+#
+# Version: 1.0.0
+# ============================================================
+
+clear;
+closeall;
+switchtolayout;
+deleteall;
+
+# ===================== USER CONTROLS =====================
+# ACTIVE_INPUT:
+#   0 = build geometry only; all sources disabled
+#   1 = C_R_in
+#   2 = C_L_in
+#   3 = T_R_in
+#   4 = T_L_in
+ACTIVE_INPUT = 0;
+
+# Set to 1 only after choosing ACTIVE_INPUT = 1, 2, 3, or 4.
+RUN_SIMULATION = 0;
+
+# Save the constructed model in the current working directory.
+SAVE_FSP = 1;
+
+# ===================== DESIGN PARAMETERS =====================
+lambda0 = 1.55e-6;
+k0 = 2*pi/lambda0;
+
+# Nanopillar and lattice parameters.
+Lx = 220e-9;
+Ly = 400e-9;
+H = 800e-9;
+Pcell = 640e-9;
+
+# PB-gradient array.
+Nrot = 26;
+Nrows_y = 26;
+Nx_total = Nrot;
+
+Psuper = Nrot*Pcell;
+kg = 2*pi/Psuper;
+
+Px = Nx_total*Pcell;
+Py = Nrows_y*Pcell;
+
+# Fixed logical-path incidence angle:
+# alpha = asin(lambda/(2*Psuper)).
+alpha_rad = asin(lambda0/(2*Psuper));
+alpha_deg = alpha_rad*180/pi;
+
+# Auxiliary diffraction angle associated with |kx| = 3kg/2.
+aux_arg = 3*lambda0/(2*Psuper);
+if (aux_arg < 1) {
+    aux_rad = asin(aux_arg);
+} else {
+    aux_rad = asin(0.999);
+}
+aux_deg = aux_rad*180/pi;
+
+# ===================== MATERIAL PARAMETERS =====================
+# Single-frequency complex refractive indices at 1550 nm.
+n_meta = 3.34443;
+k_meta = 5.1e-6;
+
+n_sub = 1.45;
+k_sub = 0;
+
+n_bg = 1.0;
+
+mat_meta = "CY_aSi_nk_1550";
+mat_sub = "CY_SiO2_nk_1550";
+
+# Replace materials with clean definitions when the script is rerun.
+if (materialexists(mat_meta)) {
+    deletematerial(mat_meta);
+}
+if (materialexists(mat_sub)) {
+    deletematerial(mat_sub);
+}
+
+tmp_meta = addmaterial("(n,k) Material");
+setmaterial(tmp_meta,"name",mat_meta);
+setmaterial(mat_meta,"Refractive Index",n_meta);
+setmaterial(mat_meta,"Imaginary Refractive Index",k_meta);
+
+tmp_sub = addmaterial("(n,k) Material");
+setmaterial(tmp_sub,"name",mat_sub);
+setmaterial(mat_sub,"Refractive Index",n_sub);
+setmaterial(mat_sub,"Imaginary Refractive Index",k_sub);
+
+# ===================== FDTD SETTINGS =====================
+z_air_above = 1.4e-6;
+z_sub_below = 1.0e-6;
+z_sub_thick = 0.6e-6;
+
+mesh_step = 24e-9;
+simulation_time = 1200e-15;
+auto_shutoff_min = 1e-5;
+
+src_z = H + 0.45e-6;
+src_x_span = Px;
+src_y_span = Py;
+src_y_center = 0;
+
+# ===================== INPUT-MODE DEFINITIONS =====================
+# Circular-polarization convention used in this model:
+#   RCP: Ex phase = 0 deg, Ey phase = +90 deg
+#   LCP: Ex phase = 0 deg, Ey phase = -90 deg
+#
+# Control path:
+#   kx = -kg/2, theta = alpha, phi = 180 deg
+#
+# Target path:
+#   kx = +kg/2, theta = alpha, phi = 0 deg
+
+Nin = 4;
+
+input_theta_deg = matrix(Nin);
+input_phi_deg = matrix(Nin);
+input_spin = matrix(Nin);
+
+input_theta_deg(1) = alpha_deg;
+input_phi_deg(1) = 180;
+input_spin(1) = 1;     # C_R_in
+
+input_theta_deg(2) = alpha_deg;
+input_phi_deg(2) = 180;
+input_spin(2) = -1;    # C_L_in
+
+input_theta_deg(3) = alpha_deg;
+input_phi_deg(3) = 0;
+input_spin(3) = 1;     # T_R_in
+
+input_theta_deg(4) = alpha_deg;
+input_phi_deg(4) = 0;
+input_spin(4) = -1;    # T_L_in
+
+# ===================== BUILD FDTD REGION =====================
+addfdtd;
+
+set("dimension","3D");
+
+set("x",0);
+set("x span",Px);
+
+set("y",0);
+set("y span",Py);
+
+set("z min",-z_sub_below);
+set("z max",H+z_air_above);
+
+set("simulation time",simulation_time);
+set("auto shutoff min",auto_shutoff_min);
+set("index",n_bg);
+set("mesh accuracy",2);
+
+set("x min bc","PML");
+set("x max bc","PML");
+set("y min bc","PML");
+set("y max bc","PML");
+set("z min bc","PML");
+set("z max bc","PML");
+
+# ===================== SUBSTRATE =====================
+addrect;
+set("name","SiO2_substrate");
+
+set("x",0);
+set("x span",Px);
+
+set("y",0);
+set("y span",Py);
+
+set("z min",-z_sub_thick);
+set("z max",0);
+
+set("material",mat_sub);
+
+# ===================== 26 x 26 PB ARRAY =====================
+fin_count = 0;
+
+for (col=0:Nx_total-1) {
+
+    x0 = -Px/2 + (col+0.5)*Pcell;
+
+    # Cross-polarized PB phase = 2*theta.
+    # The 26 columns cover one complete 2*pi phase period.
+    pb_phase = 2*pi*col/Nrot;
+    theta_deg = 0.5*pb_phase*180/pi;
+
+    for (row=0:Nrows_y-1) {
+
+        y0 = -Py/2 + (row+0.5)*Pcell;
+        fin_count = fin_count + 1;
+
+        addrect;
+        set("name","aSi_fin_"+num2str(fin_count));
+
+        set("x",x0);
+        set("y",y0);
+
+        set("z min",0);
+        set("z max",H);
+
+        set("x span",Lx);
+        set("y span",Ly);
+
+        set("material",mat_meta);
+
+        set("first axis","z");
+        set("rotation 1",theta_deg);
+    }
+}
+
+# ===================== LOCAL MESH =====================
+addmesh;
+set("name","mesh_nanopillars");
+
+set("x",0);
+set("x span",Px);
+
+set("y",0);
+set("y span",Py);
+
+set("z min",-50e-9);
+set("z max",H+50e-9);
+
+set("dx",mesh_step);
+set("dy",mesh_step);
+set("dz",mesh_step);
+
+# ===================== FOUR CIRCULAR INPUT MODES =====================
+# Each circular input is synthesized by two coherent orthogonal
+# linearly polarized plane-wave sources with equal amplitudes.
+
+# ---- 1. C_R_in ----
+addplane;
+set("name","SRC_C_R_x");
+set("injection axis","z");
+set("direction","Backward");
+set("x",0);
+set("x span",src_x_span);
+set("y",src_y_center);
+set("y span",src_y_span);
+set("z",src_z);
+set("wavelength start",lambda0);
+set("wavelength stop",lambda0);
+set("polarization angle",0);
+set("amplitude",1/sqrt(2));
+set("phase",0);
+set("angle theta",input_theta_deg(1));
+set("angle phi",input_phi_deg(1));
+set("enabled",0);
+
+addplane;
+set("name","SRC_C_R_y");
+set("injection axis","z");
+set("direction","Backward");
+set("x",0);
+set("x span",src_x_span);
+set("y",src_y_center);
+set("y span",src_y_span);
+set("z",src_z);
+set("wavelength start",lambda0);
+set("wavelength stop",lambda0);
+set("polarization angle",90);
+set("amplitude",1/sqrt(2));
+set("phase",90);
+set("angle theta",input_theta_deg(1));
+set("angle phi",input_phi_deg(1));
+set("enabled",0);
+
+# ---- 2. C_L_in ----
+addplane;
+set("name","SRC_C_L_x");
+set("injection axis","z");
+set("direction","Backward");
+set("x",0);
+set("x span",src_x_span);
+set("y",src_y_center);
+set("y span",src_y_span);
+set("z",src_z);
+set("wavelength start",lambda0);
+set("wavelength stop",lambda0);
+set("polarization angle",0);
+set("amplitude",1/sqrt(2));
+set("phase",0);
+set("angle theta",input_theta_deg(2));
+set("angle phi",input_phi_deg(2));
+set("enabled",0);
+
+addplane;
+set("name","SRC_C_L_y");
+set("injection axis","z");
+set("direction","Backward");
+set("x",0);
+set("x span",src_x_span);
+set("y",src_y_center);
+set("y span",src_y_span);
+set("z",src_z);
+set("wavelength start",lambda0);
+set("wavelength stop",lambda0);
+set("polarization angle",90);
+set("amplitude",1/sqrt(2));
+set("phase",-90);
+set("angle theta",input_theta_deg(2));
+set("angle phi",input_phi_deg(2));
+set("enabled",0);
+
+# ---- 3. T_R_in ----
+addplane;
+set("name","SRC_T_R_x");
+set("injection axis","z");
+set("direction","Backward");
+set("x",0);
+set("x span",src_x_span);
+set("y",src_y_center);
+set("y span",src_y_span);
+set("z",src_z);
+set("wavelength start",lambda0);
+set("wavelength stop",lambda0);
+set("polarization angle",0);
+set("amplitude",1/sqrt(2));
+set("phase",0);
+set("angle theta",input_theta_deg(3));
+set("angle phi",input_phi_deg(3));
+set("enabled",0);
+
+addplane;
+set("name","SRC_T_R_y");
+set("injection axis","z");
+set("direction","Backward");
+set("x",0);
+set("x span",src_x_span);
+set("y",src_y_center);
+set("y span",src_y_span);
+set("z",src_z);
+set("wavelength start",lambda0);
+set("wavelength stop",lambda0);
+set("polarization angle",90);
+set("amplitude",1/sqrt(2));
+set("phase",90);
+set("angle theta",input_theta_deg(3));
+set("angle phi",input_phi_deg(3));
+set("enabled",0);
+
+# ---- 4. T_L_in ----
+addplane;
+set("name","SRC_T_L_x");
+set("injection axis","z");
+set("direction","Backward");
+set("x",0);
+set("x span",src_x_span);
+set("y",src_y_center);
+set("y span",src_y_span);
+set("z",src_z);
+set("wavelength start",lambda0);
+set("wavelength stop",lambda0);
+set("polarization angle",0);
+set("amplitude",1/sqrt(2));
+set("phase",0);
+set("angle theta",input_theta_deg(4));
+set("angle phi",input_phi_deg(4));
+set("enabled",0);
+
+addplane;
+set("name","SRC_T_L_y");
+set("injection axis","z");
+set("direction","Backward");
+set("x",0);
+set("x span",src_x_span);
+set("y",src_y_center);
+set("y span",src_y_span);
+set("z",src_z);
+set("wavelength start",lambda0);
+set("wavelength stop",lambda0);
+set("polarization angle",90);
+set("amplitude",1/sqrt(2));
+set("phase",-90);
+set("angle theta",input_theta_deg(4));
+set("angle phi",input_phi_deg(4));
+set("enabled",0);
+
+# ===================== TRANSMITTED-FIELD MONITOR =====================
+addpower;
+set("name","Tmon");
+set("monitor type","2D Z-normal");
+
+set("x",0);
+set("x span",Px);
+
+set("y",0);
+set("y span",Py);
+
+set("z",-0.25e-6);
+
+set("override global monitor settings",1);
+set("frequency points",1);
+
+# ===================== SELECT INPUT MODE =====================
+# All sources were created in the disabled state.
+# Enable only the selected coherent source pair.
+
+if (ACTIVE_INPUT == 1) {
+    select("SRC_C_R_x");
+    set("enabled",1);
+    select("SRC_C_R_y");
+    set("enabled",1);
+}
+
+if (ACTIVE_INPUT == 2) {
+    select("SRC_C_L_x");
+    set("enabled",1);
+    select("SRC_C_L_y");
+    set("enabled",1);
+}
+
+if (ACTIVE_INPUT == 3) {
+    select("SRC_T_R_x");
+    set("enabled",1);
+    select("SRC_T_R_y");
+    set("enabled",1);
+}
+
+if (ACTIVE_INPUT == 4) {
+    select("SRC_T_L_x");
+    set("enabled",1);
+    select("SRC_T_L_y");
+    set("enabled",1);
+}
+
+# ===================== SAVE / OPTIONAL RUN =====================
+if (SAVE_FSP == 1) {
+    save("CY_gate_FDTD_model.fsp");
+}
+
+?"============================================================";
+?"CY metasurface FDTD model constructed.";
+?"Array: 26 x 26 nanopillars";
+?"Nanopillar Lx/Ly/H = 220/400/800 nm";
+?"Lattice period = 640 nm";
+?"Design wavelength = 1550 nm";
+?"Logical-path angle magnitude = " + num2str(alpha_deg) + " deg";
+?"Auxiliary-order angle magnitude = " + num2str(aux_deg) + " deg";
+?"ACTIVE_INPUT = " + num2str(ACTIVE_INPUT);
+?"============================================================";
+
+if (RUN_SIMULATION == 1) {
+
+    if ((ACTIVE_INPUT < 1) or (ACTIVE_INPUT > 4)) {
+        ?"ERROR: choose ACTIVE_INPUT = 1, 2, 3, or 4 before running.";
+    } else {
+        run;
+        T_total = abs(transmission("Tmon"));
+        ?"Simulation completed.";
+        ?"Transmission recorded by Tmon = " + num2str(T_total);
+    }
+} else {
+    ?"Geometry has been built without running FDTD.";
+    ?"Set ACTIVE_INPUT to 1-4 and RUN_SIMULATION = 1 to run one input mode.";
+}
