@@ -15,10 +15,6 @@
 #   polarized input-mode definitions, PML boundaries, local mesh,
 #   and the transmitted-field monitor.
 #
-#   The encoded two-photon gate-matrix reconstruction and fidelity
-#   calculations are performed separately in MATLAB and are not
-#   included in this public script.
-#
 # Authors:
 #   Dongyan Li, Weihao Zhang, Yaru Li, and Guoqiang Lan
 #
